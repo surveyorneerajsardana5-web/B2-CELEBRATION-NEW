@@ -12,24 +12,38 @@ const protobuf = require("protobufjs");
 const app = express();
 app.use(express.json());
 
-// Resolve the frontend directory robustly. Render commonly runs from the
-// repository root, while some uploads keep the project inside AJS_TRADING_PRO/.
-const PUBLIC_DIR_CANDIDATES = [
-  path.join(__dirname, "public"),
-  path.join(__dirname, "AJS_TRADING_PRO", "public"),
-  path.join(__dirname, "src", "public"),
-  path.join(process.cwd(), "public"),
-  path.join(process.cwd(), "AJS_TRADING_PRO", "public")
+// Resolve the frontend entry point across common layouts. This supports Render
+// deployments where the app is at repo root, in AJS_TRADING_PRO/, or built to
+// dist/ or build/. The selected directory is also served for CSS/JS/assets.
+const FRONTEND_INDEX_CANDIDATES = [
+  path.join(__dirname, "public", "index.html"),
+  path.join(__dirname, "dist", "index.html"),
+  path.join(__dirname, "build", "index.html"),
+  path.join(__dirname, "index.html"),
+  path.join(__dirname, "AJS_TRADING_PRO", "public", "index.html"),
+  path.join(__dirname, "AJS_TRADING_PRO", "dist", "index.html"),
+  path.join(__dirname, "AJS_TRADING_PRO", "build", "index.html"),
+  path.join(__dirname, "AJS_TRADING_PRO", "index.html"),
+  path.join(__dirname, "src", "public", "index.html"),
+  path.join(process.cwd(), "public", "index.html"),
+  path.join(process.cwd(), "dist", "index.html"),
+  path.join(process.cwd(), "build", "index.html"),
+  path.join(process.cwd(), "index.html"),
+  path.join(process.cwd(), "AJS_TRADING_PRO", "public", "index.html"),
+  path.join(process.cwd(), "AJS_TRADING_PRO", "dist", "index.html"),
+  path.join(process.cwd(), "AJS_TRADING_PRO", "build", "index.html"),
+  path.join(process.cwd(), "AJS_TRADING_PRO", "index.html")
 ];
-const PUBLIC_DIR = PUBLIC_DIR_CANDIDATES.find(dir =>
-  fs.existsSync(path.join(dir, "index.html"))
-) || null;
-if (PUBLIC_DIR) {
-  console.log(`[AJS_WEB] Frontend directory: ${PUBLIC_DIR}`);
-  app.use(express.static(PUBLIC_DIR));
+const FRONTEND_INDEX = FRONTEND_INDEX_CANDIDATES.find(file => {
+  try { return fs.statSync(file).isFile(); } catch { return false; }
+}) || null;
+const FRONTEND_DIR = FRONTEND_INDEX ? path.dirname(FRONTEND_INDEX) : null;
+if (FRONTEND_DIR) {
+  console.log(`[AJS_WEB] Frontend index: ${FRONTEND_INDEX}`);
+  app.use(express.static(FRONTEND_DIR));
 } else {
   console.error("[AJS_WEB] Frontend index.html was not found. Checked:");
-  for (const dir of PUBLIC_DIR_CANDIDATES) console.error(`  - ${path.join(dir, "index.html")}`);
+  for (const file of FRONTEND_INDEX_CANDIDATES) console.error(`  - ${file}`);
 }
 
 const PORT = Number(process.env.PORT || 3000);
@@ -779,14 +793,16 @@ app.post("/api/paper/close/:id", (req,res) => {
   if(t.status==="OPEN") { t.status="CLOSED"; t.closedAt=new Date().toISOString(); t.exitReason="MANUAL PAPER CLOSE"; t.exitPrice=Number(t.ltp)||Number(t.entry); t.realizedPnl=(t.exitPrice-Number(t.entry))*Number(t.quantity||1); t.pnl=t.realizedPnl; }
   res.json({trade:t,realOrders:false});
 });
-app.get("*", (req, res) => {
-  if (!PUBLIC_DIR) {
-    return res.status(500).type("text/plain").send(
+// Express 4/5-compatible final fallback (avoid app.get("*") wildcard issues).
+app.use((req, res) => {
+  if (!FRONTEND_INDEX) {
+    return res.status(500).type("text/plain; charset=utf-8").send(
       "AJS TRADING PRO frontend is missing: index.html was not found. " +
-      "Ensure public/index.html is committed and the Render Root Directory points to the project folder."
+      "Commit the frontend entry file and set Render Root Directory to the folder containing package.json/server.js. " +
+      "Checked public/, dist/, build/, project root, and common nested project folders."
     );
   }
-  return res.sendFile(path.join(PUBLIC_DIR, "index.html"));
+  return res.sendFile(FRONTEND_INDEX);
 });
 const httpServer = app.listen(PORT, ()=>{
   console.log(`AJS TRADING PRO running at http://localhost:${PORT}`);
